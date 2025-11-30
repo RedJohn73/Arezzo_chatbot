@@ -16,35 +16,32 @@ FALLBACK = (
 )
 
 def answer_question(q, history=None):
-    """
-    q = domanda attuale
-    history = lista (utente, bot)
-    """
-
-    # Recupero documenti simili dal DB
     docs = search_similar(q)
     context = "\n\n".join([d["text"] for d in docs]) if docs else ""
 
     # Conversazione precedente
     conv = ""
     if history:
-        for u, b in history:
+        for u, b in history[-6:]:   # LIMITIAMO AGLI ULTIMI 6 TURNI
             conv += f"Utente: {u}\nAssistente: {b}\n"
 
     prompt = f"""
 {TONE}
 
+Contenuti ufficiali:
+{context}
+
 Conversazione precedente:
 {conv}
 
-Contenuti ufficiali disponibili:
-{context}
-
 Domanda attuale: {q}
 
-Rispondi in modo istituzionale e solo sulla base delle fonti ufficiali.
+Rispondi SOLO sulla base dei contenuti ufficiali.
+Se una informazione NON è presente nelle fonti, rispondi:
+"Al momento non risultano disponibili informazioni ufficiali utili per rispondere alla sua richiesta. "
+    "Può utilizzare la chat WhatsApp del Comune di Arezzo negli orari di apertura degli uffici "
+    "per ottenere assistenza diretta tramite il seguente link: https://bit.ly/avviachat"
 """
-
     try:
         r = client.responses.create(model=MODEL, input=prompt)
         return r.output[0].content[0].text
