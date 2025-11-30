@@ -1,14 +1,7 @@
 # core/scraper.py
 # Incremental Drupal Crawler for Comune di Arezzo
-# Features:
-#   - Multi-level BFS crawling
-#   - Async parallel HTTP fetch
-#   - Incremental crawling (only new or modified pages)
-#   - MD5 checksums for change detection
-#   - URL normalization
-#   - Breadcrumb extraction
-#   - Content-type classification (news, bando, ordinanza, pagina)
-#   - Safe for Streamlit Cloud
+# Full updated version with max_pages, max_depth, async, deduplication
+# Compatible with Streamlit Cloud
 
 import asyncio
 import aiohttp
@@ -21,42 +14,40 @@ import os
 BASE_URL = "https://www.comune.arezzo.it"
 DOMAIN = urlparse(BASE_URL).netloc
 
-CRAWL_STATE_PATH = "data/crawl_state.json"  # url → checksum
+CRAWL_STATE_PATH = "data/crawl_state.json"     # url -> checksum
 CRAWLED_DOCS_PATH = "data/comune_arezzo_dump.json"
 
-MAX_PAGES = 600         # max total pages visited
-MAX_DEPTH = 4           # BFS depth
-MAX_CONCURRENCY = 8     # parallel HTTP requests
+MAX_CONCURRENCY = 8
 
 
 # ------------------------------------------------------
-# Helper utilities
+# Utility functions
 # ------------------------------------------------------
 
 def normalize_url(url: str) -> str:
-    """Normalize URLs for consistent hashing and duplicate removal."""
+    """Normalize URLs for deduplication."""
     p = urlparse(url)
-    p = p._replace(fragment="")  # remove #anchor
+    p = p._replace(fragment="")
     path = p.path or "/"
     if path != "/" and path.endswith("/"):
         path = path[:-1]
-    p = p._replace(path=path)
-    return p.geturl()
+    return p._replace(path=path).geturl()
 
 
 def is_valid_url(url: str) -> bool:
+    """Filter out external links and useless file types."""
     parsed = urlparse(url)
     if parsed.scheme not in ("http", "https"):
         return False
     if parsed.netloc and parsed.netloc != DOMAIN:
         return False
-    if any(url.lower().endswith(ext) for ext in [".jpg",".jpeg",".png",".pdf",".gif",".zip",".doc",".docx"]):
+    if any(url.lower().endswith(ext) for ext in [".jpg",".jpeg",".png",".gif",".pdf",".zip",".doc",".docx"]):
         return False
     return True
 
 
-async def fetch(session, url):
-    """Fetch HTML with aiohttp."""
+async def fetch(session: aiohttp.ClientSession, url: str):
+    """Async HTML fetch."""
     try:
         async with session.get(url, timeout=15) as resp:
             if resp.status != 200:
@@ -66,16 +57,16 @@ async def fetch(session, url):
         return None
 
 
-def extract_page(html, url):
-    """Extract text, title, metadata, breadcrumbs."""
+def extract_page(html: str, url: str):
+    """Extracts text + metadata + breadcrumbs."""
     soup = BeautifulSoup(html, "html.parser")
 
-    # Remove non-content
+    # Remove layout clutter
     for tag in soup(["script","style","header","footer","nav"]):
         tag.decompose()
 
     text = " ".join(soup.get_text(separator=" ", strip=True).split())
-    if not text:
+    if len(text) < 100:
         return None
 
     title = soup.title.string.strip() if soup.title and soup.title.string else "Senza titolo"
@@ -86,24 +77,24 @@ def extract_page(html, url):
     mk = soup.find("meta", attrs={"name":"keywords"})
     meta_keywords = mk["content"].strip() if mk and mk.get("content") else ""
 
-    # Breadcrumbs extraction (Drupal compatible)
+    # Breadcrumbs
     crumbs = []
     cont = soup.select_one("nav.breadcrumb, ul.breadcrumb, ol.breadcrumb")
     if cont:
-        for li in cont.find_all(["li","a","span"]):
+        for li in cont.find_all(["li","span","a"]):
             t = li.get_text(strip=True)
             if t:
                 crumbs.append(t)
 
-    # Content type guess
+    # Content type inference
     path = urlparse(url).path.lower()
-    crumbs_l = [c.lower() for c in crumbs]
+    b = [c.lower() for c in crumbs]
 
-    if "notizie" in path or "news" in path or any("notizie" in c or "news" in c for c in crumbs_l):
+    if "notizie" in path or "news" in path or any("notizie" in c or "news" in c for c in b):
         ctype = "news"
-    elif "bandi" in path or "gare" in path or any("bando" in c or "bandi" in c for c in crumbs_l):
+    elif "bandi" in path or "gare" in path or any("bando" in c or "bandi" in c for c in b):
         ctype = "bando"
-    elif "ordinanze" in path or any("ordinanze" in c for c in crumbs_l):
+    elif "ordinanze" in path or any("ordinanze" in c for c in b):
         ctype = "ordinanza"
     else:
         ctype = "pagina"
@@ -124,42 +115,43 @@ def md5(text: str) -> str:
 
 
 # ------------------------------------------------------
-# Incremental Crawler
+# ASYNC INCREMENTAL CRAWLER
 # ------------------------------------------------------
 
-async def _crawl_incremental_async():
-    """Incremental async BFS crawler."""
-    # LOAD previous state (url → checksum)
+async def _crawl_incremental_async(max_pages: int, max_depth: int):
+    """Core async crawler supporting incremental updates."""
+
+    # Load crawl state (URL → checksum)
     if os.path.exists(CRAWL_STATE_PATH):
         with open(CRAWL_STATE_PATH, "r", encoding="utf-8") as f:
             crawl_state = json.load(f)
     else:
         crawl_state = {}
 
-    # LOAD previously crawled docs
+    # Load previous documents
     if os.path.exists(CRAWLED_DOCS_PATH):
         with open(CRAWLED_DOCS_PATH, "r", encoding="utf-8") as f:
             old_docs = json.load(f)
     else:
         old_docs = []
 
-    # BFS queue
     queue = [(normalize_url(BASE_URL), 0)]
     visited = set()
 
+    new_docs = []
     semaphore = asyncio.Semaphore(MAX_CONCURRENCY)
-    new_docs = []  # ONLY docs that changed
 
     async with aiohttp.ClientSession() as session:
-        while queue and len(visited) < MAX_PAGES:
+
+        while queue and len(visited) < max_pages:
+
             batch = []
-            # Take small parallelizable batch
             while queue and len(batch) < MAX_CONCURRENCY:
                 batch.append(queue.pop(0))
 
             tasks = []
             for url, depth in batch:
-                if url in visited or depth > MAX_DEPTH:
+                if url in visited or depth > max_depth:
                     continue
 
                 async def worker(u=url, d=depth):
@@ -169,22 +161,20 @@ async def _crawl_incremental_async():
 
                 tasks.append(worker())
 
-            # Wait for batch results
             for coro in asyncio.as_completed(tasks):
                 url, depth, html = await coro
+
                 if not html:
                     continue
 
                 visited.add(url)
 
-                # Compute checksum
                 checksum = md5(html)
 
                 # Skip if unchanged
                 if url in crawl_state and crawl_state[url] == checksum:
-                    continue  # unchanged
+                    continue
 
-                # Page changed or new → extract
                 page = extract_page(html, url)
                 if page:
                     new_docs.append(page)
@@ -192,39 +182,40 @@ async def _crawl_incremental_async():
                 # Update checksum
                 crawl_state[url] = checksum
 
-                # Enqueue new links
-                if depth < MAX_DEPTH:
+                # BFS expansion
+                if depth < max_depth:
                     soup = BeautifulSoup(html, "html.parser")
                     for a in soup.find_all("a", href=True):
                         link = normalize_url(urljoin(url, a["href"]))
                         if is_valid_url(link) and link not in visited:
                             queue.append((link, depth + 1))
 
-    # Merge old docs + new/updated ones
-    # Replace only updated pages (same URL)
+    # Merge: overwrite updated pages
     final_docs = {doc["url"]: doc for doc in old_docs}
-
     for d in new_docs:
-        final_docs[d["url"]] = d  # overwrite if modified
+        final_docs[d["url"]] = d
 
-    final_doc_list = list(final_docs.values())
+    final_list = list(final_docs.values())
 
-    # SAVE docs and crawl-state
+    # Save docs
     os.makedirs("data", exist_ok=True)
-
     with open(CRAWLED_DOCS_PATH, "w", encoding="utf-8") as f:
-        json.dump(final_doc_list, f, ensure_ascii=False, indent=2)
+        json.dump(final_list, f, ensure_ascii=False, indent=2)
 
+    # Save crawl state
     with open(CRAWL_STATE_PATH, "w", encoding="utf-8") as f:
         json.dump(crawl_state, f, ensure_ascii=False, indent=2)
 
     return len(new_docs)
 
 
-def incremental_crawl():
+# ------------------------------------------------------
+# STREAMLIT WRAPPER
+# ------------------------------------------------------
+
+def incremental_crawl(max_pages=400, max_depth=4):
     """
     Streamlit-safe wrapper.
-    Returns the number of updated documents.
+    Accepts dynamic crawling params.
     """
-    return asyncio.run(_crawl_incremental_async())
-
+    return asyncio.run(_crawl_incremental_async(max_pages, max_depth))
