@@ -9,6 +9,18 @@ import json, os, tempfile
 st.set_page_config(page_title="Comune di Arezzo – Chatbot", page_icon="🏛️", layout="wide")
 
 # ----------------------------------------------------------
+# INIT SESSION STATE (MUST BE BEFORE ANY WIDGET)
+# ----------------------------------------------------------
+if "history" not in st.session_state:
+    st.session_state["history"] = []
+
+if "input_key" not in st.session_state:
+    st.session_state["input_key"] = "chat_input_1"
+
+if "clear_prompt" not in st.session_state:
+    st.session_state["clear_prompt"] = False
+
+# ----------------------------------------------------------
 # INFO COUNTERS – REAL-TIME STATS
 # ----------------------------------------------------------
 st.sidebar.subheader("📊 Stato Attuale del Knowledge Base")
@@ -144,24 +156,26 @@ for u, b in st.session_state["history"]:
     st.chat_message("assistant").write(b)
 
 # ----------------------------------------------------------
-# INPUT BOX + WHATSAPP BUTTONS LAYOUT — WITH ENTER SUBMIT
+# INPUT BOX + ENTER-SUBMIT + CLEAN — FINAL PERFECT VERSION
 # ----------------------------------------------------------
 
-# Funzione che gestisce invio tramite ENTER
+# If cleaning was triggered, create a new input key to reset the widget
+if st.session_state["clear_prompt"]:
+    st.session_state["input_key"] = f"chat_input_{os.urandom(4).hex()}"
+    st.session_state["clear_prompt"] = False
+
+
+# Function that gets called when user presses ENTER
 def send_on_enter():
-    prompt_value = st.session_state.get("chat_input", "").strip()
-    if prompt_value:
-        st.chat_message("user").write(prompt_value)
-        response = answer_question(prompt_value, history=st.session_state["history"])
+    msg = st.session_state[st.session_state["input_key"]].strip()
+    if msg:
+        st.chat_message("user").write(msg)
+        response = answer_question(msg, history=st.session_state["history"])
         st.chat_message("assistant").write(response)
-        st.session_state["history"].append((prompt_value, response))
+        st.session_state["history"].append((msg, response))
         st.session_state["clear_prompt"] = True
         st.rerun()
 
-# Se serve resettare il prompt, cambiamo la key
-if st.session_state.get("clear_prompt", False):
-    st.session_state["input_key"] = f"chat_input_{os.urandom(4).hex()}"
-    st.session_state["clear_prompt"] = False
 
 col_input, col_send, col_clear = st.columns([6, 1.4, 1.4])
 
@@ -170,7 +184,7 @@ with col_input:
         "Scrivi qui...",
         key=st.session_state["input_key"],
         label_visibility="collapsed",
-        on_change=send_on_enter   # <----- ENTER INVIA
+        on_change=send_on_enter   # <----- ENTER TO SEND
     )
 
 with col_send:
@@ -179,16 +193,21 @@ with col_send:
 with col_clear:
     clear_clicked = st.button("🧹 Pulisci/Clean", use_container_width=True)
 
-# CLEAR CHAT
+
+# CLEAR CHAT CLICKED
 if clear_clicked:
     st.session_state["history"] = []
     st.session_state["clear_prompt"] = True
     st.rerun()
 
-# SEND BUTTON
-if send_clicked and prompt:
-    st.chat_message("user").write(prompt)
-    response = answer_question(prompt, history=st.session_state["history"])
-    st.chat_message("assistant").write(response)
-    st.session_state["history"].append((prompt, response))
-    st.rerun()
+
+# BUTTON SEND CLICKED
+if send_clicked:
+    msg = st.session_state[st.session_state["input_key"]].strip()
+    if msg:
+        st.chat_message("user").write(msg)
+        response = answer_question(msg, history=st.session_state["history"])
+        st.chat_message("assistant").write(response)
+        st.session_state["history"].append((msg, response))
+        st.session_state["clear_prompt"] = True
+        st.rerun()
