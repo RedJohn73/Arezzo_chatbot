@@ -2,29 +2,51 @@ from openai import OpenAI
 from core.embeddings import search_similar
 import os
 
-api_key=os.getenv("OPENAI_API_KEY")
-if not api_key: raise ValueError("Missing OPENAI_API_KEY")
+client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+MODEL = "gpt-4.1-mini"
 
-client=OpenAI(api_key=api_key)
-MODEL="gpt-4.1-mini"
+TONE = (
+    "Sei l'Assistente Istituzionale del Comune di Arezzo. "
+    "Rispondi sempre in modo formale, chiaro e conforme al linguaggio della PA."
+)
 
-TONE = "Sei l'Assistente Istituzionale del Comune di Arezzo. Rispondi in modo formale."
+FALLBACK = (
+    "Al momento non risultano informazioni ufficiali sufficienti. "
+    "È possibile contattare la chat WhatsApp del Comune: https://bit.ly/avviachat"
+)
 
-FALLBACK="Informazioni non disponibili. Contattare: https://bit.ly/avviachat"
+def answer_question(q, history=None):
+    """
+    q = domanda attuale
+    history = lista (utente, bot)
+    """
 
-def answer_question(q):
-    docs=search_similar(q)
-    if not docs: return FALLBACK
-    ctx="\n\n".join([d["text"] for d in docs])
-    prompt=f"""{TONE}
-Contenuti ufficiali:
-{ctx}
+    # Recupero documenti simili dal DB
+    docs = search_similar(q)
+    context = "\n\n".join([d["text"] for d in docs]) if docs else ""
 
-Domanda: {q}
-Risposta formale:
+    # Conversazione precedente
+    conv = ""
+    if history:
+        for u, b in history:
+            conv += f"Utente: {u}\nAssistente: {b}\n"
+
+    prompt = f"""
+{TONE}
+
+Conversazione precedente:
+{conv}
+
+Contenuti ufficiali disponibili:
+{context}
+
+Domanda attuale: {q}
+
+Rispondi in modo istituzionale e solo sulla base delle fonti ufficiali.
 """
+
     try:
-        r=client.responses.create(model=MODEL, input=prompt)
+        r = client.responses.create(model=MODEL, input=prompt)
         return r.output[0].content[0].text
     except:
         return FALLBACK
