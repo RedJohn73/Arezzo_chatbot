@@ -147,37 +147,40 @@ for u, b in st.session_state["history"]:
 # INPUT BOX + WHATSAPP BUTTONS LAYOUT
 # ----------------------------------------------------------
 
-# Placeholder per forzare reset del campo input
-if "clear_prompt" not in st.session_state:
-    st.session_state["clear_prompt"] = False
+# Placeholder per input dinamico
+input_placeholder = st.empty()
 
-col_input, col_send, col_clear = st.columns([6, 1.4, 1.4])
+# Se è stato chiesto un reset, l'input viene forzato vuoto
+default_value = "" if st.session_state.get("clear_prompt", False) else st.session_state.get("chat_input", "")
 
-with col_input:
-    prompt = st.text_input(
-        "Scrivi qui...",
-        key="chat_input",
-        label_visibility="collapsed",
-        value="" if st.session_state["clear_prompt"] else st.session_state.get("chat_input", "")
-    )
+with st.container():
+    col_input, col_send, col_clear = st.columns([6, 1.4, 1.4])
 
-with col_send:
-    send_clicked = st.button("➤ Invia/Send", use_container_width=True)
+    with col_input:
+        prompt = input_placeholder.text_input(
+            "Scrivi qui...",
+            value=default_value,
+            key="chat_input",
+            label_visibility="collapsed"
+        )
 
-with col_clear:
-    clear_clicked = st.button("🧹 Pulisci/Clean", use_container_width=True)
+    with col_send:
+        send_clicked = st.button("➤ Invia/Send", use_container_width=True)
 
-# CLEAR CHAT
+    with col_clear:
+        clear_clicked = st.button("🧹 Pulisci/Clean", use_container_width=True)
+
+# CLEAN CHAT
 if clear_clicked:
     st.session_state["history"] = []
-    st.session_state["clear_prompt"] = True  # <--- farà vuotare il campo al prossimo rerun
+    st.session_state["clear_prompt"] = True
     st.rerun()
 
 # SEND MESSAGE
 if send_clicked and prompt:
-    st.session_state["clear_prompt"] = False  # mantieni prompt valido
-    st.chat_message("user").write(prompt)
+    st.session_state["clear_prompt"] = False
 
+    st.chat_message("user").write(prompt)
     response = answer_question(prompt, history=st.session_state["history"])
     st.chat_message("assistant").write(response)
 
