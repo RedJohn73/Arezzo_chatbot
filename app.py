@@ -170,6 +170,7 @@ with col_clear:
 # ----------------------------------------------------------
 if clear_clicked:
     st.session_state["history"] = []
+    st.session_state["chat_input"] = ""   # <--- AGGIUNTO
     st.rerun()
 
 if send_clicked and prompt:
