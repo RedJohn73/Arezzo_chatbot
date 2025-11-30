@@ -133,10 +133,12 @@ st.sidebar.markdown("---")
 # ----------------------------------------------------------
 st.markdown("<h1 style='text-align:center'>🏛️ Assistente Istituzionale – Comune di Arezzo</h1>", unsafe_allow_html=True)
 
-# Button to clear chat
-if st.button("🧹 Pulisci Chat"):
-    st.session_state["history"] = []
-    st.experimental_rerun()
+# --- CLEAR CHAT BUTTON (under prompt, small) ---
+clear_col = st.columns([5,1,5])[1]
+with clear_col:
+    if st.button("🧹", help="Pulisci chat", use_container_width=True):
+        st.session_state["history"] = []
+        st.rerun()
 
 # Chat history init
 if "history" not in st.session_state:
