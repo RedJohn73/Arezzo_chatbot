@@ -144,12 +144,24 @@ for u, b in st.session_state["history"]:
     st.chat_message("assistant").write(b)
 
 # ----------------------------------------------------------
-# INPUT BOX + WHATSAPP BUTTONS LAYOUT — FINAL FIX
+# INPUT BOX + WHATSAPP BUTTONS LAYOUT — WITH ENTER SUBMIT
 # ----------------------------------------------------------
 
-# Generiamo un key dinamico per il text_input
-if "input_key" not in st.session_state:
-    st.session_state["input_key"] = "chat_input_1"
+# Funzione che gestisce invio tramite ENTER
+def send_on_enter():
+    prompt_value = st.session_state.get("chat_input", "").strip()
+    if prompt_value:
+        st.chat_message("user").write(prompt_value)
+        response = answer_question(prompt_value, history=st.session_state["history"])
+        st.chat_message("assistant").write(response)
+        st.session_state["history"].append((prompt_value, response))
+        st.session_state["clear_prompt"] = True
+        st.rerun()
+
+# Se serve resettare il prompt, cambiamo la key
+if st.session_state.get("clear_prompt", False):
+    st.session_state["input_key"] = f"chat_input_{os.urandom(4).hex()}"
+    st.session_state["clear_prompt"] = False
 
 col_input, col_send, col_clear = st.columns([6, 1.4, 1.4])
 
@@ -157,7 +169,8 @@ with col_input:
     prompt = st.text_input(
         "Scrivi qui...",
         key=st.session_state["input_key"],
-        label_visibility="collapsed"
+        label_visibility="collapsed",
+        on_change=send_on_enter   # <----- ENTER INVIA
     )
 
 with col_send:
@@ -166,21 +179,16 @@ with col_send:
 with col_clear:
     clear_clicked = st.button("🧹 Pulisci/Clean", use_container_width=True)
 
-# CLEAR CHAT → reset campo input al 100%
+# CLEAR CHAT
 if clear_clicked:
     st.session_state["history"] = []
-
-    # Cambia key → forza Streamlit a ricreare il widget
-    st.session_state["input_key"] = f"chat_input_{os.urandom(4).hex()}"
-
+    st.session_state["clear_prompt"] = True
     st.rerun()
 
-# SEND MESSAGE
+# SEND BUTTON
 if send_clicked and prompt:
     st.chat_message("user").write(prompt)
     response = answer_question(prompt, history=st.session_state["history"])
     st.chat_message("assistant").write(response)
     st.session_state["history"].append((prompt, response))
-
-    # Non cambiare key, conserva il prompt per follow-up
     st.rerun()
