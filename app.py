@@ -156,26 +156,15 @@ for u, b in st.session_state["history"]:
     st.chat_message("assistant").write(b)
 
 # ----------------------------------------------------------
-# INPUT BOX + ENTER-SUBMIT + CLEAN — FINAL PERFECT VERSION
+# INPUT BOX — VERSIONE STABILE SENZA CALLBACK (ENTER OK)
 # ----------------------------------------------------------
 
-# If cleaning was triggered, create a new input key to reset the widget
-if st.session_state["clear_prompt"]:
-    st.session_state["input_key"] = f"chat_input_{os.urandom(4).hex()}"
-    st.session_state["clear_prompt"] = False
+# inizializziamo la chiave input se manca
+if "input_key" not in st.session_state:
+    st.session_state["input_key"] = "chat_input_1"
 
-
-# Function that gets called when user presses ENTER
-def send_on_enter():
-    msg = st.session_state[st.session_state["input_key"]].strip()
-    if msg:
-        st.chat_message("user").write(msg)
-        response = answer_question(msg, history=st.session_state["history"])
-        st.chat_message("assistant").write(response)
-        st.session_state["history"].append((msg, response))
-        st.session_state["clear_prompt"] = True
-        st.rerun()
-
+# valore precedente del prompt
+prev_text = st.session_state.get("last_prompt_value", "")
 
 col_input, col_send, col_clear = st.columns([6, 1.4, 1.4])
 
@@ -184,7 +173,7 @@ with col_input:
         "Scrivi qui...",
         key=st.session_state["input_key"],
         label_visibility="collapsed",
-        on_change=send_on_enter   # <----- ENTER TO SEND
+        value=prev_text
     )
 
 with col_send:
@@ -194,20 +183,31 @@ with col_clear:
     clear_clicked = st.button("🧹 Pulisci/Clean", use_container_width=True)
 
 
-# CLEAR CHAT CLICKED
+# --- CLEAN CHAT ---
 if clear_clicked:
     st.session_state["history"] = []
-    st.session_state["clear_prompt"] = True
+    st.session_state["last_prompt_value"] = ""
+    st.session_state["input_key"] = f"chat_input_{os.urandom(4).hex()}"
     st.rerun()
 
 
-# BUTTON SEND CLICKED
-if send_clicked:
-    msg = st.session_state[st.session_state["input_key"]].strip()
-    if msg:
-        st.chat_message("user").write(msg)
-        response = answer_question(msg, history=st.session_state["history"])
-        st.chat_message("assistant").write(response)
-        st.session_state["history"].append((msg, response))
-        st.session_state["clear_prompt"] = True
-        st.rerun()
+# --- ENTER-DETECTION: se il valore è cambiato e NON è vuoto ---
+enter_pressed = (prompt != prev_text) and (prompt.strip() != "")
+
+# --- INVIO MESSAGGIO ---
+if send_clicked or enter_pressed:
+    st.chat_message("user").write(prompt)
+    response = answer_question(prompt, history=st.session_state["history"])
+    st.chat_message("assistant").write(response)
+
+    st.session_state["history"].append((prompt, response))
+
+    # salviamo ultimo valore per rilevare ENTER al prossimo giro
+    st.session_state["last_prompt_value"] = ""
+
+    # reset widget input rigenerando la key
+    st.session_state["input_key"] = f"chat_input_{os.urandom(4).hex()}"
+    st.rerun()
+else:
+    # se non è stato inviato, aggiorniamo il valore di controllo
+    st.session_state["last_prompt_value"] = prompt
