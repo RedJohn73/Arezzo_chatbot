@@ -147,15 +147,19 @@ for u, b in st.session_state["history"]:
 # INPUT BOX + WHATSAPP BUTTONS LAYOUT
 # ----------------------------------------------------------
 
-# Reset prompt mechanism
-if "clear_prompt" in st.session_state and st.session_state["clear_prompt"]:
-    st.session_state["chat_input"] = ""
+# Placeholder per forzare reset del campo input
+if "clear_prompt" not in st.session_state:
     st.session_state["clear_prompt"] = False
 
 col_input, col_send, col_clear = st.columns([6, 1.4, 1.4])
 
 with col_input:
-    prompt = st.text_input("Scrivi qui...", key="chat_input", label_visibility="collapsed")
+    prompt = st.text_input(
+        "Scrivi qui...",
+        key="chat_input",
+        label_visibility="collapsed",
+        value="" if st.session_state["clear_prompt"] else st.session_state.get("chat_input", "")
+    )
 
 with col_send:
     send_clicked = st.button("➤ Invia/Send", use_container_width=True)
@@ -166,13 +170,16 @@ with col_clear:
 # CLEAR CHAT
 if clear_clicked:
     st.session_state["history"] = []
-    st.session_state["clear_prompt"] = True   # <--- FLAG
+    st.session_state["clear_prompt"] = True  # <--- farà vuotare il campo al prossimo rerun
     st.rerun()
 
 # SEND MESSAGE
 if send_clicked and prompt:
+    st.session_state["clear_prompt"] = False  # mantieni prompt valido
     st.chat_message("user").write(prompt)
+
     response = answer_question(prompt, history=st.session_state["history"])
     st.chat_message("assistant").write(response)
+
     st.session_state["history"].append((prompt, response))
     st.rerun()
