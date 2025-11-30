@@ -147,11 +147,10 @@ for u, b in st.session_state["history"]:
 # INPUT BOX + WHATSAPP BUTTONS LAYOUT
 # ----------------------------------------------------------
 
-st.markdown("""
-<div style="padding:14px; background-color:#1e1f22; border-radius:10px; margin-top:25px; border:1px solid #333;">
-    <label style="color:#ddd; font-size:15px;">Fai una domanda...</label>
-</div>
-""", unsafe_allow_html=True)
+# Reset prompt mechanism
+if "clear_prompt" in st.session_state and st.session_state["clear_prompt"]:
+    st.session_state["chat_input"] = ""
+    st.session_state["clear_prompt"] = False
 
 col_input, col_send, col_clear = st.columns([6, 1.4, 1.4])
 
@@ -164,18 +163,16 @@ with col_send:
 with col_clear:
     clear_clicked = st.button("🧹 Pulisci/Clean", use_container_width=True)
 
-
-# ----------------------------------------------------------
-# HANDLING BUTTONS
-# ----------------------------------------------------------
+# CLEAR CHAT
 if clear_clicked:
     st.session_state["history"] = []
-    st.session_state["chat_input"] = ""   # <--- AGGIUNTO
+    st.session_state["clear_prompt"] = True   # <--- FLAG
     st.rerun()
 
+# SEND MESSAGE
 if send_clicked and prompt:
     st.chat_message("user").write(prompt)
-    response = answer_question(prompt)
+    response = answer_question(prompt, history=st.session_state["history"])
     st.chat_message("assistant").write(response)
     st.session_state["history"].append((prompt, response))
     st.rerun()
