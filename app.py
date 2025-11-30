@@ -3,6 +3,7 @@ from core.chatbot import answer_question
 from core.scraper import incremental_crawl
 from core.embeddings import build_embeddings_incremental
 from core.pdf_handler import extract_text_from_pdf
+from datetime import datetime
 import json, os, tempfile
 
 st.set_page_config(page_title="Comune di Arezzo – Chatbot", page_icon="🏛️", layout="wide")
@@ -32,7 +33,7 @@ if os.path.exists(uploads_path):
         except:
             uploaded_count = 0
 
-# Count FAISS vector chunks
+# Count FAISS chunks
 chunk_count = 0
 chunk_map_path = "data/chunk_map.json"
 if os.path.exists(chunk_map_path):
@@ -46,7 +47,8 @@ if os.path.exists(chunk_map_path):
 # Last embeddings update time
 emb_time = "N/D"
 if os.path.exists("data/index.faiss"):
-    emb_time = str(os.path.getmtime("data/index.faiss"))
+    ts = os.path.getmtime("data/index.faiss")
+    emb_time = datetime.fromtimestamp(ts).strftime("%d/%m/%Y %H:%M")
 
 st.sidebar.write(f"• **Pagine indicizzate dal crawler:** {crawler_count}")
 st.sidebar.write(f"• **Documenti caricati manualmente:** {uploaded_count}")
@@ -60,7 +62,6 @@ st.sidebar.markdown("---")
 # ----------------------------------------------------------
 st.sidebar.title("🛠️ Admin Panel")
 
-# --- Controls for crawling depth ---
 st.sidebar.subheader("🔎 Parametri di crawling")
 
 max_pages = st.sidebar.slider(
@@ -73,7 +74,6 @@ max_depth = st.sidebar.slider(
     min_value=1, max_value=6, value=4
 )
 
-# --- CRAWLING ---
 if st.sidebar.button("🔄 Aggiorna contenuti (incrementale)"):
     with st.spinner("Analisi delle pagine nuove o modificate..."):
         updated_docs = incremental_crawl(
@@ -85,18 +85,20 @@ if st.sidebar.button("🔄 Aggiorna contenuti (incrementale)"):
         else:
             st.sidebar.success(f"{updated_docs} nuove pagine aggiornate!")
 
-    with st.spinner("Aggiornamento degli embeddings..."):
+    with st.spinner("Aggiornamento embeddings..."):
         build_embeddings_incremental()
         st.sidebar.success("Embeddings aggiornati.")
 
 st.sidebar.markdown("---")
 
-# --- DOCUMENT UPLOAD ---
+# ----------------------------------------------------------
+# UPLOAD DOCUMENTI
+# ----------------------------------------------------------
 st.sidebar.subheader("📄 Carica documenti (txt/pdf)")
 
 uploaded_file = st.sidebar.file_uploader(
     "Aggiungi documenti al knowledge base",
-    type=["txt","pdf"]
+    type=["txt", "pdf"]
 )
 
 if uploaded_file:
@@ -111,10 +113,9 @@ if uploaded_file:
         text = extract_text_from_pdf(tmp_path)
 
     os.makedirs("data", exist_ok=True)
-
     doc_path = "data/uploaded_docs.json"
-    docs = []
 
+    docs = []
     if os.path.exists(doc_path):
         with open(doc_path, "r", encoding="utf-8") as f:
             docs = json.load(f)
@@ -124,36 +125,56 @@ if uploaded_file:
     with open(doc_path, "w", encoding="utf-8") as f:
         json.dump(docs, f, ensure_ascii=False, indent=2)
 
-    st.sidebar.success(f"{uploaded_file.name} caricato, sarà incluso nei prossimi embeddings.")
-
-st.sidebar.markdown("---")
+    st.sidebar.success(f"{uploaded_file.name} caricato e registrato.")
 
 # ----------------------------------------------------------
-# CHAT – MAIN AREA
+# CHATBOT UI – MAIN AREA
 # ----------------------------------------------------------
-st.markdown("<h1 style='text-align:center'>🏛️ Assistente Istituzionale – Comune di Arezzo</h1>", unsafe_allow_html=True)
+st.markdown("<h1 style='text-align:center; margin-bottom:20px;'>🏛️ Assistente Istituzionale – Comune di Arezzo</h1>", unsafe_allow_html=True)
 
-# --- CLEAR CHAT BUTTON (under prompt, small) ---
-clear_col = st.columns([5,1,5])[1]
-with clear_col:
-    if st.button("🧹", help="Pulisci chat", use_container_width=True):
-        st.session_state["history"] = []
-        st.rerun()
-
-# Chat history init
+# ----------------------------------------------------------
+# CHAT HISTORY
+# ----------------------------------------------------------
 if "history" not in st.session_state:
     st.session_state["history"] = []
 
-# Render chat messages
+# Render previous messages
 for u, b in st.session_state["history"]:
     st.chat_message("user").write(u)
     st.chat_message("assistant").write(b)
 
-# Input box
-prompt = st.chat_input("Scriva la sua richiesta...")
+# ----------------------------------------------------------
+# INPUT BOX + WHATSAPP BUTTONS LAYOUT
+# ----------------------------------------------------------
 
-if prompt:
+st.markdown("""
+<div style="padding:14px; background-color:#1e1f22; border-radius:10px; margin-top:25px; border:1px solid #333;">
+    <label style="color:#ddd; font-size:15px;">Fai una domanda...</label>
+</div>
+""", unsafe_allow_html=True)
+
+col_input, col_send, col_clear = st.columns([6, 1.4, 1.4])
+
+with col_input:
+    prompt = st.text_input("Scrivi qui...", key="chat_input", label_visibility="collapsed")
+
+with col_send:
+    send_clicked = st.button("➤ Invia/Send", use_container_width=True)
+
+with col_clear:
+    clear_clicked = st.button("🧹 Pulisci/Clean", use_container_width=True)
+
+
+# ----------------------------------------------------------
+# HANDLING BUTTONS
+# ----------------------------------------------------------
+if clear_clicked:
+    st.session_state["history"] = []
+    st.rerun()
+
+if send_clicked and prompt:
     st.chat_message("user").write(prompt)
     response = answer_question(prompt)
     st.chat_message("assistant").write(response)
     st.session_state["history"].append((prompt, response))
+    st.rerun()
