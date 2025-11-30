@@ -1,4 +1,6 @@
 # core/embeddings.py
+# Incremental embedding engine for the Arezzo municipal chatbot
+
 from openai import OpenAI
 import faiss
 import numpy as np
@@ -6,23 +8,31 @@ import json
 import os
 import tiktoken
 
-ENC = tiktoken.get_encoding("cl100k_base")
-
-MAX_TOKENS_PER_CHUNK = 6000   # safe limit for text-embedding-3-large
+# -----------------------------
+# CONFIG
+# -----------------------------
 INDEX_PATH = "data/index.faiss"
 DOCS_PATH = "data/docs.json"
+CHUNK_MAP_PATH = "data/chunk_map.json"  # mapping chunk-id -> doc-id
 
+MAX_TOKENS_PER_CHUNK = 6000  # safe for text-embedding-3-large
+
+# -----------------------------
+# INIT
+# -----------------------------
 api_key = os.getenv("OPENAI_API_KEY")
 if not api_key:
     raise ValueError("Missing OPENAI_API_KEY")
 
 client = OpenAI(api_key=api_key)
+ENC = tiktoken.get_encoding("cl100k_base")
 
 
-# -----------------------------
-# TEXT CHUNKER
-# -----------------------------
+# ============================================================
+# 1. CHUNKING
+# ============================================================
 def chunk_text(text, max_tokens=MAX_TOKENS_PER_CHUNK):
+    """Splits text into safe chunks for embedding."""
     tokens = ENC.encode(text)
     chunks = []
     start = 0
@@ -37,81 +47,172 @@ def chunk_text(text, max_tokens=MAX_TOKENS_PER_CHUNK):
     return chunks
 
 
-# -----------------------------
-# EMBEDDER
-# -----------------------------
+# ============================================================
+# 2. EMBEDDING
+# ============================================================
 def embed(texts):
+    """Embeds a list of texts using OpenAI embeddings."""
     resp = client.embeddings.create(
         model="text-embedding-3-large",
         input=texts
     )
-    return np.array([e.embedding for e in resp.data]).astype("float32")
+    return np.array([d.embedding for d in resp.data]).astype("float32")
 
 
-# -----------------------------
-# BUILD EMBEDDINGS
-# -----------------------------
-def build_embeddings(json_path):
-    with open(json_path, "r", encoding="utf-8") as f:
-        docs = json.load(f)
+# ============================================================
+# 3. LOADING EXISTING INDEX OR CREATING NEW ONE
+# ============================================================
+def load_index():
+    if os.path.exists(INDEX_PATH):
+        return faiss.read_index(INDEX_PATH)
+    return None
 
-    vectors = []
-    chunks_meta = []   # mapping chunk → doc index
 
-    for i, d in enumerate(docs):
-        enriched = (
-            f"{d.get('title','')} "
-            f"{' > '.join(d.get('breadcrumbs', []))} "
-            f"{d.get('meta_description','')} "
-            f"{d.get('meta_keywords','')} "
-            f"{d['text']}"
-        )
-
-        # CHUNKING 🔥
-        text_chunks = chunk_text(enriched, MAX_TOKENS_PER_CHUNK)
-
-        # embed chunks
-        chunk_vectors = embed(text_chunks)
-
-        for vec in chunk_vectors:
-            vectors.append(vec)
-            chunks_meta.append(i)  # i = index documento
-
-    vectors = np.vstack(vectors)
-
-    index = faiss.IndexFlatL2(vectors.shape[1])
-    index.add(vectors)
+def save_index(index):
     faiss.write_index(index, INDEX_PATH)
 
-    # Save mapping (doc index per chunk)
-    meta_path = DOCS_PATH.replace(".json", "_chunks.json")
+
+# ============================================================
+# 4. LOAD/SAVE DOCS AND CHUNK MAP
+# ============================================================
+def load_docs():
+    if not os.path.exists(DOCS_PATH):
+        return []
+    with open(DOCS_PATH, "r", encoding="utf-8") as f:
+        return json.load(f)
+
+
+def save_docs(docs):
     with open(DOCS_PATH, "w", encoding="utf-8") as f:
         json.dump(docs, f, ensure_ascii=False, indent=2)
 
-    with open(meta_path, "w", encoding="utf-8") as f:
-        json.dump(chunks_meta, f)
+
+def load_chunk_map():
+    if not os.path.exists(CHUNK_MAP_PATH):
+        return []
+    with open(CHUNK_MAP_PATH, "r", encoding="utf-8") as f:
+        return json.load(f)
 
 
-# -----------------------------
-# SEARCH
-# -----------------------------
+def save_chunk_map(chunk_map):
+    with open(CHUNK_MAP_PATH, "w", encoding="utf-8") as f:
+        json.dump(chunk_map, f, ensure_ascii=False, indent=2)
+
+
+# ============================================================
+# 5. INCREMENTAL EMBEDDING REBUILD
+# ============================================================
+def build_embeddings_incremental():
+    """
+    Rebuild embeddings incrementally:
+    - Only embed new or modified documents.
+    - Merge new chunks into existing FAISS index.
+    """
+
+    # Load existing docs & chunk map
+    existing_docs = load_docs()
+    existing_chunk_map = load_chunk_map()
+    existing_index = load_index()
+
+    # Load fresh crawler output (which overwrites data/comune_arezzo_dump.json)
+    crawler_path = "data/comune_arezzo_dump.json"
+    upload_path = "data/uploaded_docs.json"
+
+    crawler_docs = []
+    if os.path.exists(crawler_path):
+        with open(crawler_path, "r", encoding="utf-8") as f:
+            crawler_docs = json.load(f)
+
+    uploaded_docs = []
+    if os.path.exists(upload_path):
+        with open(upload_path, "r", encoding="utf-8") as f:
+            uploaded_docs = json.load(f)
+
+    # Merge new docs (crawler + uploads)
+    new_docs = crawler_docs + uploaded_docs
+
+    # Identify NEW documents (not in existing set)
+    to_embed_docs = []
+    for d in new_docs:
+        if d not in existing_docs:
+            to_embed_docs.append(d)
+
+    # If nothing to embed → nothing to do
+    if not to_embed_docs:
+        print("No new documents to embed.")
+        return
+
+    # ------------------------------------
+    # CHUNK + EMBED new documents
+    # ------------------------------------
+    all_new_vectors = []
+    new_chunk_map_entries = []
+
+    for doc in to_embed_docs:
+        enriched = (
+            f"{doc.get('title','')} "
+            f\"{' > '.join(doc.get('breadcrumbs', []))}\" "
+            f"{doc.get('meta_description','')} "
+            f"{doc.get('meta_keywords','')} "
+            f"{doc['text']}"
+        )
+
+        chunks = chunk_text(enriched)
+        vectors = embed(chunks)  # embed chunks
+
+        # append vector chunks
+        for vec in vectors:
+            all_new_vectors.append(vec)
+            new_chunk_map_entries.append(len(existing_docs))  # doc-id = index in saved docs
+
+        # add doc to existing docs
+        existing_docs.append(doc)
+
+    # ------------------------------------
+    # MERGE INTO FAISS INDEX
+    # ------------------------------------
+    all_new_vectors = np.vstack(all_new_vectors)
+
+    if existing_index is None:
+        # Create new FAISS index
+        index = faiss.IndexFlatL2(all_new_vectors.shape[1])
+        index.add(all_new_vectors)
+    else:
+        # Merge with existing
+        index = existing_index
+        index.add(all_new_vectors)
+
+    # Update chunk map
+    existing_chunk_map.extend(new_chunk_map_entries)
+
+    # Save everything
+    save_index(index)
+    save_docs(existing_docs)
+    save_chunk_map(existing_chunk_map)
+
+    print(f"Added {len(new_chunk_map_entries)} vector chunks to FAISS index.")
+
+
+# ============================================================
+# 6. SEMANTIC SEARCH
+# ============================================================
 def search_similar(query, top_k=5):
-    index = faiss.read_index(INDEX_PATH)
+    """Search in FAISS and return top-k documents (not chunks)."""
+    index = load_index()
+    if index is None:
+        return []
+
     qvec = embed([query])
+    D, I = index.search(qvec, top_k)
 
-    distances, ids = index.search(qvec, top_k)
-
-    with open(DOCS_PATH, "r", encoding="utf-8") as f:
-        docs = json.load(f)
-
-    meta_path = DOCS_PATH.replace(".json", "_chunks.json")
-    with open(meta_path, "r", encoding="utf-8") as f:
-        chunks_meta = json.load(f)
+    docs = load_docs()
+    chunk_map = load_chunk_map()
 
     results = []
-    for i in ids[0]:
-        if i < len(chunks_meta):
-            doc_id = chunks_meta[i]
-            results.append(docs[doc_id])
+    for idx in I[0]:
+        if idx < len(chunk_map):
+            doc_id = chunk_map[idx]
+            if doc_id < len(docs):
+                results.append(docs[doc_id])
 
     return results
