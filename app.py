@@ -6,19 +6,22 @@ import json, os
 
 st.set_page_config(page_title="Municipality of Arezzo Chatbot", page_icon="🏛️", layout="wide")
 
-st.sidebar.title("Admin Panel")
-if st.sidebar.button("🔄 Scrape Website"):
-    with st.spinner("Scraping..."):
-        data = crawl_comune_arezzo()
+st.sidebar.title("Admin Panel – Comune di Arezzo")
+
+max_pages = st.sidebar.slider("Max pagine da crawlare", 50, 800, 400)
+max_depth = st.sidebar.slider("Profondità crawling", 1, 6, 3)
+
+if st.sidebar.button("🔄 Avvia crawling avanzato"):
+    with st.spinner("Crawling in corso..."):
+        data = crawl_comune_arezzo(max_pages=max_pages, max_depth=max_depth,
+            content_types=["news","bando","ordinanza","pagina"])
         os.makedirs("data", exist_ok=True)
-        with open("data/comune_arezzo_dump.json", "w") as f:
+        with open("data/comune_arezzo_dump.json", "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
         build_embeddings("data/comune_arezzo_dump.json")
-        st.sidebar.success("Done!")
+        st.sidebar.success("Crawling completato!")
 
-uploaded = st.sidebar.file_uploader("Upload documents", type=["txt","pdf","md"])
-
-st.markdown("<h1 style='text-align:center'>🏛️ Municipality of Arezzo Chatbot</h1>", unsafe_allow_html=True)
+st.markdown("<h1 style='text-align:center'>🏛️ Assistente Istituzionale – Comune di Arezzo</h1>", unsafe_allow_html=True)
 
 if "history" not in st.session_state:
     st.session_state["history"] = []
@@ -27,10 +30,10 @@ for u,b in st.session_state["history"]:
     st.chat_message("user").write(u)
     st.chat_message("assistant").write(b)
 
-prompt = st.chat_input("Ask a question...")
+prompt = st.chat_input("Scriva la sua richiesta ...")
 
 if prompt:
     st.chat_message("user").write(prompt)
-    response = answer_question(prompt)
-    st.chat_message("assistant").write(response)
-    st.session_state["history"].append((prompt, response))
+    res = answer_question(prompt)
+    st.chat_message("assistant").write(res)
+    st.session_state["history"].append((prompt,res))

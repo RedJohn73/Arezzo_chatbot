@@ -2,27 +2,29 @@ from openai import OpenAI
 from core.embeddings import search_similar
 import os
 
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-LLM_MODEL = "gpt-4.1-mini"
+api_key=os.getenv("OPENAI_API_KEY")
+if not api_key: raise ValueError("Missing OPENAI_API_KEY")
 
-INSTITUTIONAL_TONE = (
-    "Sei l'Assistente Istituzionale del Comune di Arezzo. "
-    "Rispondi sempre in modo formale e basato sui contenuti ufficiali."
-)
+client=OpenAI(api_key=api_key)
+MODEL="gpt-4.1-mini"
 
-FALLBACK_MESSAGE = (
-    "Al momento non risultano disponibili informazioni ufficiali utili. "
-    "Può utilizzare la chat WhatsApp: https://bit.ly/avviachat"
-)
+TONE = "Sei l'Assistente Istituzionale del Comune di Arezzo. Rispondi in modo formale."
 
-def answer_question(query):
-    docs = search_similar(query)
-    if not docs:
-        return FALLBACK_MESSAGE
-    context = "\n\n".join([d["text"] for d in docs])
-    prompt = f"{INSTITUTIONAL_TONE}\n\nContenuti:\n{context}\n\nDomanda: {query}\nRisposta:"
+FALLBACK="Informazioni non disponibili. Contattare: https://bit.ly/avviachat"
+
+def answer_question(q):
+    docs=search_similar(q)
+    if not docs: return FALLBACK
+    ctx="\n\n".join([d["text"] for d in docs])
+    prompt=f"""{TONE}
+Contenuti ufficiali:
+{ctx}
+
+Domanda: {q}
+Risposta formale:
+"""
     try:
-        r = client.responses.create(model=LLM_MODEL, input=prompt)
+        r=client.responses.create(model=MODEL, input=prompt)
         return r.output[0].content[0].text
     except:
-        return FALLBACK_MESSAGE
+        return FALLBACK

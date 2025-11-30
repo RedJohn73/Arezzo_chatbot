@@ -4,4 +4,5 @@ faiss-cpu
 numpy
 requests
 beautifulsoup4
+aiohttp
 python-dotenv
