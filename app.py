@@ -142,15 +142,8 @@ if uploaded_file:
 # ----------------------------------------------------------
 # CHATBOT UI – MAIN AREA
 # ----------------------------------------------------------
-st.markdown(
-    """
-    <div style='text-align:center; margin-bottom:20px;'>
-        <img src="https://redcloud.ns0.it/nextcloud/index.php/s/PTFnH6mpG2yCntc" width="90">
-        <h1>Assistente Istituzionale – Comune di Arezzo</h1>
-    </div>
-    """,
-    unsafe_allow_html=True
-)
+
+st.markdown("<h1 style='text-align:center; margin-bottom:20px;'>🏛️ ARIA Assistente Istituzionale – Comune di Arezzo</h1>", unsafe_allow_html=True)
 
 # ----------------------------------------------------------
 # CHAT HISTORY
