@@ -142,7 +142,16 @@ if uploaded_file:
 # ----------------------------------------------------------
 # CHATBOT UI – MAIN AREA
 # ----------------------------------------------------------
-st.markdown("<h1 style='text-align:center; margin-bottom:20px;'>🏛️ Assistente Istituzionale – Comune di Arezzo</h1>", unsafe_allow_html=True)
+st.markdown(
+    """
+    <div style='text-align:center; margin-bottom:20px;'>
+        <img src='assets/ARIA.png' width='90'>
+        <h1>Assistente Istituzionale – Comune di Arezzo</h1>
+    </div>
+    """,
+    unsafe_allow_html=True
+)
+
 
 # ----------------------------------------------------------
 # CHAT HISTORY
