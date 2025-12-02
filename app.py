@@ -145,13 +145,12 @@ if uploaded_file:
 st.markdown(
     """
     <div style='text-align:center; margin-bottom:20px;'>
-        <img src='assets/ARIA.png' width='90'>
+        <img src="https://redcloud.ns0.it/nextcloud/index.php/s/PTFnH6mpG2yCntc" width="90">
         <h1>Assistente Istituzionale – Comune di Arezzo</h1>
     </div>
     """,
     unsafe_allow_html=True
 )
-
 
 # ----------------------------------------------------------
 # CHAT HISTORY
